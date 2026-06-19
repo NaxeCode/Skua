@@ -26,6 +26,7 @@ public partial class ScriptSkill : IScriptSkill
     private IScriptWait Wait => _lazyWait.Value;
     private IScriptOption Options => _lazyOptions.Value;
     private IScriptInventory Inventory => _lazyInventory.Value;
+    private readonly IScriptRunTelemetryService _telemetry;
 
     public IAdvancedSkillContainer AdvancedSkillContainer { get; set; }
 
@@ -38,7 +39,8 @@ public partial class ScriptSkill : IScriptSkill
         Lazy<IScriptCombat> combat,
         Lazy<IScriptOption> options,
         Lazy<IScriptInventory> inventory,
-        Lazy<IScriptWait> wait)
+        Lazy<IScriptWait> wait,
+        IScriptRunTelemetryService telemetry)
     {
         _lazyFlash = flash;
         _lazyPlayer = player;
@@ -48,6 +50,7 @@ public partial class ScriptSkill : IScriptSkill
         _lazyWait = wait;
         _lazyOptions = options;
         _lazyInventory = inventory;
+        _telemetry = telemetry;
         AdvancedSkillContainer = advContainer;
     }
 
@@ -64,6 +67,7 @@ public partial class ScriptSkill : IScriptSkill
     [MethodCallBinding("useSkill")]
     private bool _useSkill(int index)
     {
+        _telemetry.TrackEvent("skill.use", new { index, className = Player.CurrentClass?.Name, target = Player.Target?.Name, targetId = Player.Target?.MapID, hp = Player.Health, mp = Player.Mana });
         return false;
     }
 
@@ -114,10 +118,12 @@ public partial class ScriptSkill : IScriptSkill
         };
         _skillThread.Start();
         TimerRunning = true;
+        _telemetry.TrackEvent("skill.timer.start", new { provider = _provider?.GetType().Name, interval = SkillInterval, timeout = SkillTimeout, mode = SkillUseMode.ToString(), className = Player.CurrentClass?.Name });
     }
 
     public void Stop()
     {
+        _telemetry.TrackEvent("skill.timer.stop", new { className = Player.CurrentClass?.Name, timerRunning = TimerRunning });
         _provider?.Stop();
         _skillsCTS?.Cancel();
         Wait.ForTrue(() => !TimerRunning, 2);
@@ -153,6 +159,7 @@ public partial class ScriptSkill : IScriptSkill
 
     public void LoadAdvanced(string className, bool autoEquip, ClassUseMode useMode = ClassUseMode.Base)
     {
+        _telemetry.TrackEvent("skill.load_advanced.class", new { className, autoEquip, useMode = useMode.ToString() });
         if (className == "generic")
         {
             ResetComboOnTargetChange = false;
@@ -196,6 +203,7 @@ public partial class ScriptSkill : IScriptSkill
 
     public void LoadAdvanced(string skills, int skillTimeout = -1, SkillUseMode skillMode = SkillUseMode.UseIfAvailable)
     {
+        _telemetry.TrackEvent("skill.load_advanced.string", new { skills, skillTimeout, skillMode = skillMode.ToString() });
         ResetComboOnTargetChange = false;
         OverrideProvider = CreateAdvancedSkillProvider();
         SkillTimeout = skillTimeout;
@@ -205,6 +213,7 @@ public partial class ScriptSkill : IScriptSkill
 
     public void LoadAdvanced(string className, string mode, bool autoEquip = true)
     {
+        _telemetry.TrackEvent("skill.load_advanced.named_mode", new { className, mode, autoEquip });
         if (Enum.TryParse<ClassUseMode>(mode, ignoreCase: true, out ClassUseMode classMode))
         {
             LoadAdvanced(className, autoEquip, classMode);

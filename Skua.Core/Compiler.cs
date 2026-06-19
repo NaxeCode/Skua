@@ -219,16 +219,8 @@ public class Compiler : CSharpScriptExecution
 
             if (!compilationResult.Success)
             {
-                StringBuilder sb = new();
-                foreach (Diagnostic diag in
-                    compilationResult.Diagnostics
-                        .Where(diagnostic => diagnostic.IsWarningAsError || diagnostic.Severity == DiagnosticSeverity.Error))
-                {
-                    sb.AppendLine(diag.ToString());
-                }
-
+                ErrorMessage = FormatCompilationDiagnostics(compilationResult.Diagnostics, sourceWithNamespaces, "memory");
                 ErrorType = ExecutionErrorTypes.Compilation;
-                ErrorMessage = sb.ToString();
                 SetErrors(new ApplicationException(ErrorMessage));
                 return false;
             }
@@ -494,21 +486,38 @@ public class Compiler : CSharpScriptExecution
 
         if (!compilationResult.Success)
         {
-            StringBuilder sb = new();
-            foreach (Diagnostic diag in
-                compilationResult.Diagnostics
-                    .Where(diagnostic => diagnostic.IsWarningAsError || diagnostic.Severity == DiagnosticSeverity.Error))
-            {
-                sb.AppendLine(diag.ToString());
-            }
-
+            ErrorMessage = FormatCompilationDiagnostics(compilationResult.Diagnostics, source, outputPath);
             ErrorType = ExecutionErrorTypes.Compilation;
-            ErrorMessage = sb.ToString();
             SetErrors(new ApplicationException(ErrorMessage));
             return false;
         }
 
         return true;
+    }
+
+    private static string FormatCompilationDiagnostics(IEnumerable<Diagnostic> diagnostics, string source, string context)
+    {
+        StringBuilder sb = new();
+        sb.AppendLine($"Script compilation failed: {context}");
+
+        foreach (Diagnostic diag in diagnostics.Where(diagnostic => diagnostic.IsWarningAsError || diagnostic.Severity == DiagnosticSeverity.Error))
+        {
+            sb.AppendLine(diag.ToString());
+        }
+
+        string message = sb.ToString();
+
+        try
+        {
+            File.WriteAllText("/tmp/skua-compiler-errors.log", message);
+            File.WriteAllText("/tmp/skua-last-generated-script.cs", source);
+        }
+        catch
+        {
+            // Best-effort diagnostics only.
+        }
+
+        return message;
     }
 
     private static void TryRunCleanup()

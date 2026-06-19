@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Skua.App.Avalonia.Plugins;
+using Skua.App.Avalonia.Services;
 using Skua.App.Avalonia.ViewModels;
 using Skua.App.Avalonia.ViewModels.AdvancedSkills;
 using Skua.App.Avalonia.ViewModels.AppLogs;
@@ -89,6 +90,7 @@ public static class Services
         services.AddSingleton<IPluginHelper, PluginHelper>();
 
         services.AddSingleton<IMapService, MapService>();
+        services.AddSingleton<IScriptRunTelemetryService, ScriptRunTelemetryService>();
         services.AddSingleton<ILogService, LogService>();
         services.AddSingleton<IQuestDataLoaderService, QuestDataLoaderService>();
         services.AddSingleton<IGrabberService, GrabberService>();
@@ -96,6 +98,7 @@ public static class Services
         services.AddSingleton<IAuraMonitorService, AuraMonitorService>();
         services.AddSingleton<IJunkService, JunkService>();
         services.AddSingleton<BackgroundThemeService>();
+        services.AddSingleton<AiContextSnapshotService>();
 
         return services;
     }

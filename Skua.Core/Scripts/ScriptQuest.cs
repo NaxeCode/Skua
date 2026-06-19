@@ -25,7 +25,8 @@ public partial class ScriptQuest : ObservableRecipient, IScriptQuest
         Lazy<IScriptInventoryHelper> invHelper,
         Lazy<IScriptLite> lite,
         Lazy<IScriptMap> map,
-        Lazy<IScriptDrop> drop)
+        Lazy<IScriptDrop> drop,
+        IScriptRunTelemetryService telemetry)
     {
         _lazyFlash = flash;
         _lazyWait = wait;
@@ -37,6 +38,7 @@ public partial class ScriptQuest : ObservableRecipient, IScriptQuest
         _lazyLite = lite;
         _lazyMap = map;
         _lazyDrop = drop;
+        _telemetry = telemetry;
 
         StrongReferenceMessenger.Default.Register<ScriptQuest, ScriptStoppedMessage, int>(this, (int)MessageChannels.ScriptStatus, OnScriptStopped);
         StrongReferenceMessenger.Default.Register<ScriptQuest, LogoutMessage, int>(this, (int)MessageChannels.GameEvents, OnLogout);
@@ -52,6 +54,7 @@ public partial class ScriptQuest : ObservableRecipient, IScriptQuest
     private readonly Lazy<IScriptLite> _lazyLite;
     private readonly Lazy<IScriptMap> _lazyMap;
     private readonly Lazy<IScriptDrop> _lazyDrop;
+    private readonly IScriptRunTelemetryService _telemetry;
     private IFlashUtil Flash => _lazyFlash.Value;
     private IScriptWait Wait => _lazyWait.Value;
     private IScriptOption Options => _lazyOptions.Value;
@@ -141,10 +144,13 @@ public partial class ScriptQuest : ObservableRecipient, IScriptQuest
 
     public bool Accept(int id)
     {
+        _telemetry.TrackEvent("quest.accept.request", new { id, map = Map.Name, roomId = Map.RoomID });
         Wait.ForActionCooldown(GameActions.AcceptQuest);
         Flash.CallGameFunction("world.acceptQuest", id);
         Wait.ForQuestAccept(id);
-        return IsInProgress(id);
+        bool inProgress = IsInProgress(id);
+        _telemetry.TrackEvent("quest.accept.result", new { id, inProgress, map = Map.Name, roomId = Map.RoomID });
+        return inProgress;
     }
 
     public void Accept(params int[] ids)
@@ -179,10 +185,16 @@ public partial class ScriptQuest : ObservableRecipient, IScriptQuest
 
     public bool Complete(int id, int itemId = -1, bool special = false)
     {
+        int levelBefore = Player.Level;
+        int xpBefore = Player.XP;
+        int goldBefore = Player.Gold;
+        _telemetry.TrackEvent("quest.complete.request", new { id, itemId, special, levelBefore, xpBefore, goldBefore, map = Map.Name, roomId = Map.RoomID });
         Wait.ForActionCooldown(GameActions.TryQuestComplete);
         Flash.CallGameFunction("world.tryQuestComplete", id, itemId, special);
         Wait.ForQuestComplete(id);
-        return !IsInProgress(id);
+        bool completed = !IsInProgress(id);
+        _telemetry.TrackEvent("quest.complete.result", new { id, itemId, special, completed, levelBefore, levelAfter = Player.Level, xpBefore, xpAfter = Player.XP, goldBefore, goldAfter = Player.Gold, map = Map.Name, roomId = Map.RoomID });
+        return completed;
     }
 
     public void Complete(params int[] ids)

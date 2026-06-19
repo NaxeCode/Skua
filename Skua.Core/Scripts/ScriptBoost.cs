@@ -13,7 +13,8 @@ public partial class ScriptBoost : ObservableObject, IScriptBoost, IAsyncDisposa
         Lazy<IScriptInventory> inventory,
         Lazy<IScriptBank> bank,
         Lazy<IScriptPlayer> player,
-        Lazy<IScriptWait> wait)
+        Lazy<IScriptWait> wait,
+        IScriptRunTelemetryService telemetry)
     {
         _lazyInventory = inventory;
         _lazyBank = bank;
@@ -22,6 +23,7 @@ public partial class ScriptBoost : ObservableObject, IScriptBoost, IAsyncDisposa
         _lazyWait = wait;
         _lazyMap = map;
         _lazyFlash = flash;
+        _telemetry = telemetry;
         _timerBoosts = new PeriodicTimer(TimeSpan.FromSeconds(30));
     }
 
@@ -32,6 +34,7 @@ public partial class ScriptBoost : ObservableObject, IScriptBoost, IAsyncDisposa
     private readonly Lazy<IScriptWait> _lazyWait;
     private readonly Lazy<IScriptMap> _lazyMap;
     private readonly Lazy<IFlashUtil> _lazyFlash;
+    private readonly IScriptRunTelemetryService _telemetry;
     private IScriptInventory Inventory => _lazyInventory.Value;
     private IScriptBank Bank => _lazyBank.Value;
     private IScriptSend Send => _lazySend.Value;
@@ -84,6 +87,7 @@ public partial class ScriptBoost : ObservableObject, IScriptBoost, IAsyncDisposa
 
     public void UseBoost(int id)
     {
+        _telemetry.TrackEvent("boost.use", new { id, map = Map.Name, roomId = Map.RoomID });
         Send.Packet($"%xt%zm%serverUseItem%{Map.RoomID}%+%{id}%");
     }
 
@@ -146,6 +150,7 @@ public partial class ScriptBoost : ObservableObject, IScriptBoost, IAsyncDisposa
         if (_taskBoosts is not null)
             return;
 
+        _telemetry.TrackEvent("boost.timer.start", new { useGold = UseGoldBoost, goldId = GoldBoostID, useClass = UseClassBoost, classId = ClassBoostID, useExperience = UseExperienceBoost, experienceId = ExperienceBoostID, useReputation = UseReputationBoost, reputationId = ReputationBoostID });
         _ctsBoosts = new();
         _taskBoosts = HandleBoosts(_timerBoosts, _ctsBoosts.Token);
         OnPropertyChanged(nameof(Enabled));
@@ -156,6 +161,7 @@ public partial class ScriptBoost : ObservableObject, IScriptBoost, IAsyncDisposa
         if (_taskBoosts is null)
             return;
 
+        _telemetry.TrackEvent("boost.timer.stop");
         _ctsBoosts?.Cancel();
         Wait.ForTrue(() => _taskBoosts?.IsCompleted == true, null, 20);
         _ctsBoosts?.Dispose();

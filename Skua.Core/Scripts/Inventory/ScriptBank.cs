@@ -63,17 +63,25 @@ public partial class ScriptBank : IScriptBank
     [MethodCallBinding("world.toggleBank", RunMethodPre = true, GameFunction = true)]
     private void _open()
     {
-        if (Flash.GetGameObject("ui.mcPopup.currentLabel") == "Bank")
+        if (IsBankPopupOpen())
             return;
     }
 
     public void Load(bool waitForLoad = true)
     {
-        if (Flash.GetGameObject("ui.mcPopup.currentLabel") == "Bank")
+        if (Loaded && Items.Count > 0)
             return;
+
         Send.Packet($"%xt%zm%loadBank%{Map.RoomID}%All%");
         if (waitForLoad)
             Wait.ForBankLoad(20);
+    }
+
+    private bool IsBankPopupOpen()
+    {
+        string? label = Flash.GetGameObject("ui.mcPopup.currentLabel");
+        return string.Equals(label, "Bank", StringComparison.Ordinal)
+            || string.Equals(label, "\"Bank\"", StringComparison.Ordinal);
     }
 
     public bool Swap(string invItem, string bankItem)

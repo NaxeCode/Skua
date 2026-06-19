@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
+using Skua.App.Avalonia.Services;
 using Skua.App.Avalonia.ViewModels.AppLogs;
 using Skua.Core.Interfaces;
 using Skua.Core.Messaging;
@@ -24,6 +25,7 @@ public partial class ScriptLoaderViewModel : BotControlViewModelBase
         IScriptManager scriptManager,
         IWindowService windowService,
         IDialogService dialogService,
+        AiContextSnapshotService aiContextSnapshot,
         IEnumerable<LogTabViewModel> logs)
         : base("Scripts", 350, 450)
     {
@@ -41,6 +43,7 @@ public partial class ScriptLoaderViewModel : BotControlViewModelBase
         ScriptManager = scriptManager;
         _windowService = windowService;
         _dialogService = dialogService;
+        _aiContextSnapshot = aiContextSnapshot;
         ScriptLogs = logs.FirstOrDefault(l => l.Title == "Script") ?? logs.First();
     }
 
@@ -50,6 +53,7 @@ public partial class ScriptLoaderViewModel : BotControlViewModelBase
     private readonly IProcessService _processService;
     private readonly IDialogService _dialogService;
     private readonly IFileDialogService _fileDialog;
+    private readonly AiContextSnapshotService _aiContextSnapshot;
     public LogTabViewModel ScriptLogs { get; }
 
     [ObservableProperty]
@@ -63,6 +67,25 @@ public partial class ScriptLoaderViewModel : BotControlViewModelBase
 
     [ObservableProperty]
     private string _loadedScript = "No script loaded";
+
+    [ObservableProperty]
+    private string _aiContextPath = string.Empty;
+
+    [RelayCommand]
+    private async Task WriteAiContextSnapshot()
+    {
+        try
+        {
+            AiContextPath = await _aiContextSnapshot.WriteSnapshotAsync(includeBank: true);
+            ScriptLogs.Logs.Add($"AI context snapshot written: {AiContextPath}");
+            _dialogService.ShowMessageBox($"AI context snapshot written:\r\n{AiContextPath}", "AI Context");
+        }
+        catch (Exception ex)
+        {
+            ScriptLogs.Logs.Add($"AI context snapshot failed: {ex}");
+            _dialogService.ShowMessageBox($"AI context snapshot failed:\r\n{ex.Message}", "AI Context Error");
+        }
+    }
 
     [RelayCommand]
     private void OpenBrowserForm()

@@ -29,7 +29,8 @@ public partial class ScriptManager : ObservableObject, IScriptManager, IDisposab
         Lazy<IScriptSkill> skills,
         Lazy<IScriptDrop> drops,
         Lazy<IScriptWait> wait,
-        Lazy<IAuraMonitorService> auraMonitorService)
+        Lazy<IAuraMonitorService> auraMonitorService,
+        IScriptRunTelemetryService scriptRunTelemetry)
     {
         _lazyBot = scriptInterface;
         _lazyHandlers = handlers;
@@ -38,6 +39,7 @@ public partial class ScriptManager : ObservableObject, IScriptManager, IDisposab
         _lazyWait = wait;
         _lazyAuraMonitor = auraMonitorService;
         _logger = logger;
+        _scriptRunTelemetry = scriptRunTelemetry;
     }
 
     private readonly Lazy<IScriptInterface> _lazyBot;
@@ -47,6 +49,7 @@ public partial class ScriptManager : ObservableObject, IScriptManager, IDisposab
     private readonly Lazy<IScriptWait> _lazyWait;
     private readonly Lazy<IAuraMonitorService> _lazyAuraMonitor;
     private readonly ILogService _logger;
+    private readonly IScriptRunTelemetryService _scriptRunTelemetry;
 
     private IScriptHandlers Handlers => _lazyHandlers.Value;
     private IScriptSkill Skills => _lazySkills.Value;
@@ -112,6 +115,8 @@ public partial class ScriptManager : ObservableObject, IScriptManager, IDisposab
             }
 
             ManualResetEventSlim scriptReady = new(false);
+            string telemetryScriptPath = LoadedScript;
+            _scriptRunTelemetry.StartRun(telemetryScriptPath);
 
             Handlers.Clear();
 
@@ -192,6 +197,8 @@ public partial class ScriptManager : ObservableObject, IScriptManager, IDisposab
                         catch { }
                     }
 
+                    _scriptRunTelemetry.StopRun(exception);
+
                     script = null;
                     Skills.Stop();
                     Drops.Stop();
@@ -234,6 +241,7 @@ public partial class ScriptManager : ObservableObject, IScriptManager, IDisposab
         }
         catch (Exception e)
         {
+            _scriptRunTelemetry.StopRun(e);
             lock (_threadLock)
             {
                 ScriptRunning = false;

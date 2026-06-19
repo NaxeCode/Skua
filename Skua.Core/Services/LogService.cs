@@ -15,8 +15,11 @@ public class LogService : ObservableRecipient, ILogService, IDisposable
     private readonly object _scriptLock = new();
     private readonly object _flashLock = new();
 
-    public LogService()
+    private readonly IScriptRunTelemetryService _scriptRunTelemetry;
+
+    public LogService(IScriptRunTelemetryService scriptRunTelemetry)
     {
+        _scriptRunTelemetry = scriptRunTelemetry;
         _debugListener = new DebugListener(this);
         Trace.Listeners.Add(_debugListener);
         Messenger.Register<LogService, FlashErrorMessage>(this, LogFlashError);
@@ -67,6 +70,7 @@ public class LogService : ObservableRecipient, ILogService, IDisposable
                 _scriptLogs.RemoveAt(0);
             _scriptLogs.Add(message);
         }
+        _scriptRunTelemetry.AppendScriptLog(message);
         Messenger.Send(new LogsChangedMessage(LogType.Script));
         Messenger.Send(new AddLogMessage(LogType.Script, message));
     }

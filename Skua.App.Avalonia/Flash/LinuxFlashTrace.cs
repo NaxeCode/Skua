@@ -116,7 +116,8 @@ internal static class LinuxFlashTrace
             || text.Contains("exited", StringComparison.OrdinalIgnoreCase)
             || text.Contains("close-frame", StringComparison.OrdinalIgnoreCase)
             || text.Contains("receive-loop-end", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("pending-failed", StringComparison.OrdinalIgnoreCase);
+            || text.Contains("pending-failed", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("bank", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string Escape(object? value)

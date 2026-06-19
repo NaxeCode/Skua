@@ -23,6 +23,7 @@ public class ScriptInterface : IScriptInterface, IScriptInterfaceManager, IDispo
     private readonly ILogService _logger;
     private readonly IDialogService _dialogService;
     private readonly ISettingsService _settingsService;
+    private readonly IScriptRunTelemetryService _telemetry;
 
     public bool ShouldExit => Manager.ShouldExit;
     public Version Version { get; }
@@ -102,7 +103,8 @@ public class ScriptInterface : IScriptInterface, IScriptInterfaceManager, IDispo
         ISettingsService settingsService,
         IAuraMonitorService auraMonitorService,
         IUltraBossHelper ultraBossHelper,
-        IScriptAccounts accounts)
+        IScriptAccounts accounts,
+        IScriptRunTelemetryService telemetry)
     {
         _logger = logger;
         Manager = manager;
@@ -142,6 +144,7 @@ public class ScriptInterface : IScriptInterface, IScriptInterfaceManager, IDispo
         UltraBossHelper = ultraBossHelper;
         Accounts = accounts;
         _settingsService = settingsService;
+        _telemetry = telemetry;
 
         Version = Version.Parse(settingsService.Get("ApplicationVersion", "0.0.0.0"));
 
@@ -183,6 +186,19 @@ public class ScriptInterface : IScriptInterface, IScriptInterfaceManager, IDispo
     {
         IJunkService? junkService = Ioc.Default.GetService<IJunkService>();
         junkService?.SellAllJunk();
+    }
+
+    private static string? Dyn(dynamic data, string name)
+    {
+        try
+        {
+            object? value = data?[name];
+            return value?.ToString();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public void Log(string message)
@@ -544,6 +560,20 @@ public class ScriptInterface : IScriptInterface, IScriptInterfaceManager, IDispo
                             break;
 
                         case "addGoldExp":
+                            _telemetry.TrackEvent("packet.add_gold_exp", new
+                            {
+                                typ = Dyn(data, "typ"),
+                                id = Dyn(data, "id"),
+                                exp = Dyn(data, "intExp"),
+                                gold = Dyn(data, "intGold"),
+                                classPoints = Dyn(data, "intClassPoints"),
+                                rep = Dyn(data, "intRep"),
+                                factionId = Dyn(data, "FactionID"),
+                                factionName = Dyn(data, "sFaction"),
+                                level = Player.Level,
+                                xp = Player.XP,
+                                currentGold = Player.Gold
+                            });
                             if (data.typ == "m")
                             {
                                 Stats.Kills++;
@@ -552,6 +582,20 @@ public class ScriptInterface : IScriptInterface, IScriptInterfaceManager, IDispo
                             break;
 
                         case "ccqr":
+                            _telemetry.TrackEvent("packet.quest_reward", new
+                            {
+                                success = Dyn(data, "bSuccess"),
+                                questId = Dyn(data, "QuestID"),
+                                exp = Dyn(data, "intExp"),
+                                gold = Dyn(data, "intGold"),
+                                classPoints = Dyn(data, "intClassPoints"),
+                                rep = Dyn(data, "intRep"),
+                                factionId = Dyn(data, "FactionID"),
+                                factionName = Dyn(data, "sFaction"),
+                                level = Player.Level,
+                                xp = Player.XP,
+                                currentGold = Player.Gold
+                            });
                             if (data.bSuccess == 1)
                             {
                                 Stats.QuestsCompleted++;

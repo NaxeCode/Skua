@@ -13,13 +13,15 @@ public partial class ScriptCombat : IScriptCombat
         Lazy<IScriptOption> options,
         Lazy<IScriptWait> wait,
         Lazy<IScriptPlayer> player,
-        Lazy<IScriptMap> map)
+        Lazy<IScriptMap> map,
+        IScriptRunTelemetryService telemetry)
     {
         _lazyFlash = flash;
         _lazyOptions = options;
         _lazyWait = wait;
         _lazyPlayer = player;
         _lazyMap = map;
+        _telemetry = telemetry;
         _messenger = StrongReferenceMessenger.Default;
 
         _messenger.Register<ScriptCombat, CounterAttackMessage, int>(this, (int)MessageChannels.GameEvents, CounterAttack);
@@ -33,6 +35,7 @@ public partial class ScriptCombat : IScriptCombat
     private readonly Lazy<IScriptPlayer> _lazyPlayer;
     private readonly Lazy<IScriptMap> _lazyMap;
     private readonly IMessenger _messenger;
+    private readonly IScriptRunTelemetryService _telemetry;
 
     private IFlashUtil Flash => _lazyFlash.Value;
     private IScriptOption Options => _lazyOptions.Value;
@@ -55,6 +58,7 @@ public partial class ScriptCombat : IScriptCombat
     [MethodCallBinding("world.cancelTarget", RunMethodPost = true, GameFunction = true)]
     private void _cancelTarget()
     {
+        _telemetry.TrackEvent("combat.cancel_target", new { target = Player.Target?.Name, targetId = Player.Target?.MapID, map = Map.Name, cell = Player.Cell, roomId = Map.RoomID });
     }
 
     [MethodCallBinding("world.cancelAutoAttack", GameFunction = true)]
@@ -81,7 +85,9 @@ public partial class ScriptCombat : IScriptCombat
             return false;
         }
 
-        return Flash.Call<bool>("attackMonsterName", name);
+        bool result = Flash.Call<bool>("attackMonsterName", name);
+        _telemetry.TrackEvent("combat.attack.name", new { name, result, map = Map.Name, cell = Player.Cell, roomId = Map.RoomID });
+        return result;
     }
 
     public bool Attack(int id)
@@ -92,12 +98,16 @@ public partial class ScriptCombat : IScriptCombat
             return false;
         }
 
-        return Flash.Call<bool>("attackMonsterID", id);
+        bool result = Flash.Call<bool>("attackMonsterID", id);
+        _telemetry.TrackEvent("combat.attack.id", new { id, result, target = Player.Target?.Name, map = Map.Name, cell = Player.Cell, roomId = Map.RoomID });
+        return result;
     }
 
     public bool AttackPlayer(string name)
     {
-        return Flash.Call<bool>("attackPlayer", name);
+        bool result = Flash.Call<bool>("attackPlayer", name);
+        _telemetry.TrackEvent("combat.attack.player", new { name, result, map = Map.Name, cell = Player.Cell, roomId = Map.RoomID });
+        return result;
     }
 
     private void PlayerDead(ScriptCombat recipient, PlayerDeathMessage message)

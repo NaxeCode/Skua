@@ -18,7 +18,8 @@ public partial class ScriptMap : IScriptMap
         Lazy<IScriptSend> send,
         Lazy<IScriptWait> wait,
         Lazy<IScriptManager> manager,
-        IDialogService dialogService)
+        IDialogService dialogService,
+        IScriptRunTelemetryService telemetry)
     {
         _lazyFlash = flash;
         _lazyPlayer = player;
@@ -27,6 +28,7 @@ public partial class ScriptMap : IScriptMap
         _lazyWait = wait;
         _lazyManager = manager;
         _dialogService = dialogService;
+        _telemetry = telemetry;
         LoadSavedMapItems();
     }
 
@@ -38,6 +40,7 @@ public partial class ScriptMap : IScriptMap
     private readonly Lazy<IScriptWait> _lazyWait;
     private readonly Lazy<IScriptManager> _lazyManager;
     private readonly IDialogService _dialogService;
+    private readonly IScriptRunTelemetryService _telemetry;
     private readonly Lazy<IScriptSend> _lazySend;
 
     private IFlashUtil Flash => _lazyFlash.Value;
@@ -84,13 +87,16 @@ public partial class ScriptMap : IScriptMap
     [MethodCallBinding("jumpCorrectRoom", RunMethodPost = true)]
     private void _jump(string cell, string pad, bool autoCorrect = true, bool clientOnly = false)
     {
+        _telemetry.TrackEvent("map.jump", new { cell, pad, autoCorrect, clientOnly, fromCell = Player.Cell, fromPad = Player.Pad, map = Name, roomId = RoomID });
         Thread.Sleep(Options.ActionDelay);
         Wait.ForCellChange(cell);
     }
 
     public void Join(string map, string cell = "Enter", string pad = "Spawn", bool ignoreCheck = false, bool autoCorrect = true)
     {
+        _telemetry.TrackEvent("map.join.request", new { map, cell, pad, ignoreCheck, autoCorrect, currentMap = Name, currentCell = Player.Cell, currentPad = Player.Pad });
         _Join(map, cell, pad, ignoreCheck, autoCorrect);
+        _telemetry.TrackEvent("map.join.complete", new { requestedMap = map, currentMap = Name, currentCell = Player.Cell, currentPad = Player.Pad, roomId = RoomID });
     }
 
     private void _Join(string map, string cell = "Enter", string pad = "Spawn", bool ignoreCheck = false, bool autoCorrect = true)
@@ -116,6 +122,7 @@ public partial class ScriptMap : IScriptMap
 
     public void JoinPacket(string map, string cell = "Enter", string pad = "Spawn")
     {
+        _telemetry.TrackEvent("map.join_packet", new { map, cell, pad, roomId = RoomID });
         Send.Packet($"%xt%zm%cmd%{RoomID}%tfer%{Player.Username}%{map}%{cell}%{pad}%");
     }
 

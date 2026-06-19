@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -21,7 +22,14 @@ public sealed class WebSocketFlashHostTransport : IFlashHostTransport
     private readonly ElectronFlashHostOptions _options;
     private readonly string _token;
     private readonly ConcurrentDictionary<long, TaskCompletionSource<FlashHostResponse>> _pending = new();
-    private static readonly HttpClient HttpClient = new();
+    private static readonly CookieContainer CookieJar = new();
+    private static readonly HttpClient HttpClient = new(new SocketsHttpHandler
+    {
+        CookieContainer = CookieJar,
+        UseCookies = true,
+        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli
+    });
+    private static string? LoginToken;
 
     private readonly CancellationTokenSource _cts = new();
     private HttpListener? _listener;
@@ -377,17 +385,35 @@ public sealed class WebSocketFlashHostTransport : IFlashHostTransport
             ? "https://game.aq.com" + pathAndQuery
             : "https://game.aq.com/game" + pathAndQuery;
         using HttpRequestMessage request = new(new HttpMethod(context.Request.HttpMethod), upstream);
-        request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.163 Safari/537.36");
+        bool isBankApi = pathAndQuery.StartsWith("/game/api/char/bank", StringComparison.OrdinalIgnoreCase);
+        bool isLoginApi = pathAndQuery.StartsWith("/game/api/login/now", StringComparison.OrdinalIgnoreCase);
+        request.Headers.UserAgent.ParseAdd(context.Request.UserAgent ?? "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.163 Safari/537.36");
         request.Headers.Accept.ParseAdd(context.Request.Headers["Accept"] ?? "*/*");
-        request.Headers.Referrer = new Uri("https://game.aq.com/game/gamefiles/Loader3.swf?ver=a");
+        request.Headers.Referrer = new Uri(context.Request.UrlReferrer?.ToString().Replace("http://game.aq.com", "https://game.aq.com", StringComparison.OrdinalIgnoreCase) ?? "https://game.aq.com/game/gamefiles/Loader3.swf?ver=a");
+        ImportIncomingCookies(context.Request.Headers["Cookie"]);
+        CopyHeader("Origin", value => value.Replace("http://game.aq.com", "https://game.aq.com", StringComparison.OrdinalIgnoreCase));
+        CopyHeader("X-Requested-With");
+        CopyHeader("Accept-Language");
+        if (isBankApi && !string.IsNullOrWhiteSpace(LoginToken))
+            request.Headers.TryAddWithoutValidation("ccid", LoginToken);
 
+        byte[] requestBody = Array.Empty<byte>();
         if (context.Request.HasEntityBody)
         {
             using MemoryStream body = new();
             await context.Request.InputStream.CopyToAsync(body, cancellationToken).ConfigureAwait(false);
-            request.Content = new ByteArrayContent(body.ToArray());
+            requestBody = body.ToArray();
+            request.Content = new ByteArrayContent(requestBody);
             if (!string.IsNullOrWhiteSpace(context.Request.ContentType))
                 request.Content.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
+        }
+
+        if (isBankApi)
+        {
+            string bodyPreview = Encoding.UTF8.GetString(requestBody);
+            bodyPreview = System.Text.RegularExpressions.Regex.Replace(bodyPreview, "(?i)(password|pwd|token|auth|session|key)=([^&]*)", "$1=<redacted>");
+            string jarCookieHeader = CookieJar.GetCookieHeader(new Uri(upstream));
+            LinuxFlashTrace.Event("bank-proxy", "request", ("method", context.Request.HttpMethod), ("path", context.Request.Url?.PathAndQuery), ("upstream", upstream), ("bodyBytes", requestBody.Length), ("body", bodyPreview), ("contentType", context.Request.ContentType), ("hasCookie", !string.IsNullOrWhiteSpace(context.Request.Headers["Cookie"])), ("cookieLength", context.Request.Headers["Cookie"]?.Length ?? 0), ("cookieNames", CookieNames(context.Request.Headers["Cookie"])), ("jarCookieLength", jarCookieHeader.Length), ("jarCookieNames", CookieNames(jarCookieHeader)), ("hasLoginToken", !string.IsNullOrWhiteSpace(LoginToken)), ("ccidOut", !string.IsNullOrWhiteSpace(LoginToken) ? "<redacted>" : string.Empty), ("originIn", context.Request.Headers["Origin"]), ("originOut", request.Headers.TryGetValues("Origin", out IEnumerable<string>? originValues) ? string.Join(",", originValues) : string.Empty), ("refererIn", context.Request.UrlReferrer), ("refererOut", request.Headers.Referrer), ("xrw", context.Request.Headers["X-Requested-With"]), ("accept", context.Request.Headers["Accept"]), ("acceptLanguage", context.Request.Headers["Accept-Language"]));
         }
 
         Stopwatch stopwatch = Stopwatch.StartNew();
@@ -396,11 +422,71 @@ public sealed class WebSocketFlashHostTransport : IFlashHostTransport
         if (AqwGameSwfPatcher.IsAqwGameSwf(context.Request.Url?.AbsolutePath))
             bytes = AqwGameSwfPatcher.PatchSharedObjectSecureFlag(bytes, message => LinuxFlashTrace.Event("proxy", "swf-patch", ("message", message)));
         LinuxFlashTrace.Event("proxy", "response", ("method", context.Request.HttpMethod), ("path", context.Request.Url?.PathAndQuery), ("status", (int)response.StatusCode), ("upstream", upstream), ("bytes", bytes.Length), ("elapsedMs", stopwatch.ElapsedMilliseconds));
+        if (isBankApi)
+        {
+            LinuxFlashTrace.Event("bank-proxy", "response", ("status", (int)response.StatusCode), ("bytes", bytes.Length), ("contentType", response.Content.Headers.ContentType), ("preview", LinuxFlashTrace.Preview(Encoding.UTF8.GetString(bytes), 512)), ("setCookieCount", response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? bankSetCookies) ? bankSetCookies.Count() : 0));
+        }
+        if (isLoginApi)
+        {
+            string loginJson = Encoding.UTF8.GetString(bytes);
+            try
+            {
+                using JsonDocument loginDoc = JsonDocument.Parse(loginJson);
+                if (loginDoc.RootElement.TryGetProperty("login", out JsonElement loginEl)
+                    && loginEl.TryGetProperty("sToken", out JsonElement tokenEl))
+                    LoginToken = tokenEl.GetString();
+            }
+            catch { }
+            string loginPreview = System.Text.RegularExpressions.Regex.Replace(loginJson, "(?i)(\\\"sToken\\\"\\s*:\\s*\\\")[^\\\"]+", "$1<redacted>");
+            loginPreview = System.Text.RegularExpressions.Regex.Replace(loginPreview, "(?i)(password|pwd|auth|session|key|strPassword)[^,}&\"]*", "$1=<redacted>");
+            string jarCookieHeader = CookieJar.GetCookieHeader(new Uri(upstream));
+            LinuxFlashTrace.Event("bank-proxy", "login-response", ("status", (int)response.StatusCode), ("bytes", bytes.Length), ("contentType", response.Content.Headers.ContentType), ("preview", LinuxFlashTrace.Preview(loginPreview, 1024)), ("setCookieCount", response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? loginSetCookies) ? loginSetCookies.Count() : 0), ("setCookieNames", response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? loginSetCookies2) ? string.Join(",", loginSetCookies2.Select(CookieNameFromSetCookie)) : string.Empty), ("jarCookieLength", jarCookieHeader.Length), ("jarCookieNames", CookieNames(jarCookieHeader)));
+        }
         context.Response.StatusCode = (int)response.StatusCode;
         context.Response.ContentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+        foreach (string setCookie in response.Headers.TryGetValues("Set-Cookie", out IEnumerable<string>? setCookies) ? setCookies : Array.Empty<string>())
+            context.Response.Headers.Add("Set-Cookie", setCookie.Replace("Secure;", string.Empty, StringComparison.OrdinalIgnoreCase));
         context.Response.ContentLength64 = bytes.Length;
         await context.Response.OutputStream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
         context.Response.Close();
+
+        void CopyHeader(string name, Func<string, string>? map = null)
+        {
+            string? value = context.Request.Headers[name];
+            if (string.IsNullOrWhiteSpace(value))
+                return;
+            request.Headers.TryAddWithoutValidation(name, map?.Invoke(value) ?? value);
+        }
+    }
+
+    private static string CookieNameFromSetCookie(string setCookie)
+    {
+        if (string.IsNullOrWhiteSpace(setCookie))
+            return string.Empty;
+        return setCookie.Split(';', 2)[0].Split('=', 2)[0];
+    }
+
+    private static void ImportIncomingCookies(string? cookieHeader)
+    {
+        if (string.IsNullOrWhiteSpace(cookieHeader))
+            return;
+        try
+        {
+            CookieJar.SetCookies(new Uri("https://game.aq.com/"), cookieHeader);
+        }
+        catch (Exception ex)
+        {
+            LinuxFlashTrace.Event("bank-proxy", "cookie-import-error", ("type", ex.GetType().Name), ("message", ex.Message), ("cookieNames", CookieNames(cookieHeader)));
+        }
+    }
+
+    private static string CookieNames(string? cookieHeader)
+    {
+        if (string.IsNullOrWhiteSpace(cookieHeader))
+            return string.Empty;
+        return string.Join(",", cookieHeader.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(part => part.Split('=', 2)[0])
+            .Where(name => !string.IsNullOrWhiteSpace(name)));
     }
 
     private static async Task ServeBytesAsync(HttpListenerContext context, byte[] bytes, string contentType, CancellationToken cancellationToken)
