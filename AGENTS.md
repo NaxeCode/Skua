@@ -262,7 +262,8 @@ Script guidance going forward:
 - Avoid `/tmp/*.log` for normal scripts; keep `/tmp` logs only for high-volume diagnostics like raw bank packet traces.
 - Naxe XP scripts should not use manual `/tmp` file logs; use engine telemetry under `~/.local/state/skua/logs/script-runs/`.
 - New local Naxe scripts should include `//cs_include Scripts/Naxe/Lib/NaxeRuntime.cs` and use `NaxeRuntime` guardrails: `ReadyWait`, option preservation, `LoadQuestDataOnce`, throttled quest accept, skill timer ensure, map/cell/death recovery, and cleanup.
-- Always keep a settle buffer after `/join` and room/cell hops before quest turn-ins, skill timer restarts, or attacks. Use `Runtime.Join(...)`, `Runtime.BlockCombat(...)`, and `Runtime.EnsureCombatReadyOrSleep()`.
+- Always keep a settle buffer after `/join` and room/cell hops before quest turn-ins, skill timer restarts, or attacks. Use `Runtime.Join(...)`, `Runtime.BlockCombat(...)`, `Runtime.PrepareMapStep(...)`, and `Runtime.EnsureCombatReadyOrSleep()`.
+- Do not call `Bot.Map.Jump(...)` or `Bot.Combat.Attack(...)` directly in normal scripts; use runtime methods so settle buffers and invalid-target recovery stay consistent.
 - Do not call `Bot.Quests.Load(...)` inside hot loops; it can make the quest menu repeatedly open/close.
 - Run `~/.config/Skua/Scripts/Naxe/Tools/naxe-script-lint.sh` after local script edits.
 
